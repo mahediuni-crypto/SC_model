@@ -44,14 +44,21 @@ def main():
     )
 
     # Build geometry
-    sol = SolenoidBuilder.from_target_field(
+    design = SolenoidBuilder.solve_to_target_field(
         cable=cable,
         r_inner=0.50,
         height=1.50,
         B_target=15.0,
         current=50e3,
+        tol=1e-3,
+        metric="peak_inner_turn",
     )
+    sol = design.solenoid
 
+    print("Target-field design summary:")
+    for key, value in design.summary.items():
+        print(f"  {key}: {value}")
+    print(f"Total Ampere-Turns: {design.solenoid.NI/1e6:.2f} MA-turns")
     sol.summary()
 
     # Run inductance solver
@@ -85,8 +92,12 @@ def main():
         nr=60,
         nz=80,
     )
-    print(f"Peak |B|: {bfield_sol.Bmag.max():.2f} T")
-    print(f"Bz on axis (z=0): {abs(bfield_sol.Bz[0, bfield_sol.z.shape[0]//2]):.2f} T")
+    innermost_turn_field = SolenoidBuilder._peak_field_at_innermost_turn(sol)
+    usable_Bmag = np.nan_to_num(bfield_sol.Bmag, nan=-np.inf)
+    print(f"Peak field at innermost equatorial turn: {innermost_turn_field:.2f} T")
+    print(f"Max field in the computed map (excluding near-turn singularities): {usable_Bmag.max():.2f} T")
+    print(f"Design target: 15.00 T")
+    print(f"Achieved inner-turn field: {design.achieved_field:.2f} T")
 
     # Plot field
     plot_bfield(bfield_sol, sol)
