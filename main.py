@@ -11,7 +11,9 @@ from data.materials import HTSTape
 from data.conductors import TapeStack, StackedSlotCable
 from geometry.solenoid_builder import SolenoidBuilder
 from solvers.magnetic_field import BFieldSolver
+from solvers.cable_cross_section import CableCrossSectionFieldSolver
 from solvers.inductance import InductanceSolver
+from solvers.ac_loss import ACLossSolver
 from visualization.geometry_plots import plot_geometry_overview
 from visualization.field_plots import plot_bfield
 
@@ -67,6 +69,9 @@ def main():
 
     cable_ic = cable.critical_current(20.0, design.achieved_field)
     current_margin = cable_ic / design.current - 1.0
+    stage_start = time.perf_counter()
+    cable_field_rows = CableCrossSectionFieldSolver(cable).compute(design.current)
+    cable_field_time = time.perf_counter() - stage_start
     print("\n" + "=" * 72)
     print("REPORT-READY DESIGN SUMMARY")
     print("=" * 72)
@@ -97,6 +102,27 @@ def main():
         print(f"  T={temperature:.1f} K, B={field:.1f} T: Ic={cable_ic_at_point / 1e3:.3f} kA, "
               f"current margin={margin * 100:.1f}%")
 
+    print("2D cable cross-section field by radial HTS stack:")
+    print("  stack  angle_deg  center_T  inner_edge_T  radial_T  tangential_T  angle_to_face_deg")
+    for row in cable_field_rows:
+        print(f"  {row.stack_index:>5} {row.angle_deg:>10.1f} {row.center_field_T:>10.4f} "
+              f"{row.inner_edge_field_T:>13.4f} {row.inner_edge_radial_T:>9.4f} "
+              f"{row.inner_edge_tangential_T:>13.4f} {row.inner_edge_angle_deg:>17.2f}")
+
+    # AC-loss estimate using the current winding geometry and operating scenario.
+    stage_start = time.perf_counter()
+    ac_loss_solver = ACLossSolver(sol)
+    ac_loss = ac_loss_solver.compute(current_A=design.current, ramp_rate_A_per_s=0.2e3, temperature_K=20.0)
+    ac_loss_time = time.perf_counter() - stage_start
+    print("\nAC-loss estimate (geometry-driven):")
+    print(f"  operating current      : {ac_loss.current_A / 1e3:.3f} kA")
+    print(f"  ramp rate              : {ac_loss.ramp_rate_A_per_s / 1e3:.3f} kA/s")
+    print(f"  working temperature    : {ac_loss.temperature_K:.1f} K")
+    print(f"  peak turn B            : {ac_loss.peak_turn_B_T:.3f} T")
+    print(f"  total loss per cycle   : {ac_loss.total_loss_per_cycle_J_per_m:.6e} J/m")
+    print(f"  total power            : {ac_loss.total_power_W_per_m:.6e} W/m")
+    print(f"  estimated cycle period : {ac_loss.cycle_period_s:.3f} s")
+
     # Run inductance solver
     stage_start = time.perf_counter()
     inductance_solver = InductanceSolver(sol)
@@ -107,6 +133,7 @@ def main():
     print(f"Positive definite: {inductance_sol.positive_definite}")
     print(f"Eigenvalues: min={inductance_sol.min_eigenvalue:.3e}, "
           f"max={inductance_sol.max_eigenvalue:.3e}")
+    print(f"AC-loss solve time      : {ac_loss_time:.3f} s")
 
     # Save matrix
     np.savetxt("inductance_matrix.csv", inductance_sol.matrix, delimiter=",")
@@ -151,6 +178,7 @@ def main():
     print("RUNTIME SUMMARY")
     print("=" * 72)
     print(f"CICC sizing                  : {cable_sizing_time:.3f} s")
+    print(f"2D cable cross-section field : {cable_field_time:.3f} s")
     print(f"Fixed-current geometry sizing: {geometry_sizing_time:.3f} s")
     print(f"Inductance matrix            : {inductance_time:.3f} s")
     print(f"Geometry plot                : {geometry_plot_time:.3f} s")
