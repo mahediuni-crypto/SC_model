@@ -80,16 +80,40 @@ class StackedSlotCable:
 
     @property
     def stack_positions(self) -> list[tuple[float, float]]:
-        """(x, y) positions of the 4 HTS stacks in the former slots."""
-        # Stacks at 0°, 90°, 180°, 270°, centers at 8.5 mm from origin
-        angles = [0, np.pi/2, np.pi, 3*np.pi/2]
-        r_stack = 8.5e-3  # 8.5 mm
-        positions = []
+        """(x, y) positions of the HTS stacks in the former slots."""
+        return [(x, y) for x, y, _ in self.stack_geometry]
+
+    @property
+    def stack_geometry(self) -> list[tuple[float, float, float]]:
+        """Return stack centers and radial orientation angles in radians."""
+        angles = np.arange(self.N_slots) * 2.0 * np.pi / self.N_slots
+        r_stack = self.slot_radius
+        geometry = []
         for theta in angles:
             x = r_stack * np.cos(theta)
             y = r_stack * np.sin(theta)
-            positions.append((x, y))
-        return positions
+            geometry.append((x, y, theta))
+        return geometry
+
+    @property
+    def slot_radius(self) -> float:
+        """Approximate slot-center radius for the selected slot count."""
+        return 8.5e-3 if self.N_slots <= 4 else 7.5e-3
+
+    @property
+    def stack_clearance_ok(self) -> bool:
+        """Check radial and tangential clearance of the oriented stacks."""
+        half_radial = 0.5 * self.stack.height
+        half_tangential = 0.5 * self.stack.width
+        for cx, cy, theta in self.stack_geometry:
+            radial_center = np.hypot(cx, cy)
+            if radial_center - half_radial < self.helium_radius - 1e-12:
+                return False
+            if radial_center + half_radial > self.jacket_inner_radius + 1e-12:
+                return False
+            if half_tangential > radial_center * np.sin(np.pi / self.N_slots) + 1e-12:
+                return False
+        return True
 
     @property
     def conduit_side(self) -> float:
@@ -110,6 +134,38 @@ class StackedSlotCable:
     def A_he(self) -> float:
         """Helium area in the central channel."""
         return np.pi * self.helium_radius**2
+
+    def critical_current(self, temperature: float, field: float) -> float:
+        """Estimate total cable Ic from the Hermes tape model."""
+        tape_ic = self.stack.tape.critical_current(temperature, field)
+        return self.N_slots * self.stack.N_tapes * tape_ic
+
+    @classmethod
+    def sized_for_current(
+        cls,
+        tape: HTSTape,
+        target_current: float,
+        temperature: float,
+        field: float,
+        margin: float = 0.20,
+        slot_candidates: tuple[int, ...] = (4, 6, 8),
+        **kwargs,
+    ) -> "StackedSlotCable":
+        """Select the smallest geometrically valid cable meeting a current margin."""
+        required_ic = target_current * (1.0 + margin)
+        candidates = []
+        for n_slots in slot_candidates:
+            tapes_needed = int(np.ceil(required_ic / tape.critical_current(temperature, field) / n_slots))
+            cable = cls(
+                stack=TapeStack(tape=tape, N_tapes=tapes_needed),
+                N_slots=n_slots,
+                **kwargs,
+            )
+            if cable.stack_clearance_ok and cable.critical_current(temperature, field) >= required_ic:
+                candidates.append(cable)
+        if not candidates:
+            raise ValueError("No candidate slot layout fits the jacket and current requirement")
+        return min(candidates, key=lambda candidate: (candidate.N_slots * candidate.stack.N_tapes, candidate.N_slots))
 
     def __repr__(self) -> str:
         return (f"StackedSlotCable({self.N_slots} stacks, "

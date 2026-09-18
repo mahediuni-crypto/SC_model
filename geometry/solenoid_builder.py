@@ -122,12 +122,13 @@ class SolenoidBuilder:
         """
         area = max(turn.cable.A_sc_total / max(1, turn.cable.N_slots), 1e-18)
         current_density = current / area
-        half_side = 0.5 * turn.cable.stack.block_side
+        half_radial = 0.5 * turn.cable.stack.width
+        half_axial = 0.5 * turn.cable.stack.height
         filaments = []
         for i in range(n_side):
             for j in range(n_side):
-                rx = (-0.5 + (i + 0.5) / n_side) * 2.0 * half_side
-                rz = (-0.5 + (j + 0.5) / n_side) * 2.0 * half_side
+                rx = (-0.5 + (i + 0.5) / n_side) * 2.0 * half_radial
+                rz = (-0.5 + (j + 0.5) / n_side) * 2.0 * half_axial
                 r_f = turn.r_center + rx
                 z_f = turn.z_center + rz
                 dA = area / (n_side * n_side)
@@ -148,8 +149,8 @@ class SolenoidBuilder:
         min_r = min(lay.r_center for lay in sol.layers)
         innermost_turns = [lay for lay in sol.layers if np.isclose(lay.r_center, min_r, rtol=1e-9, atol=1e-12)]
         turn = min(innermost_turns, key=lambda t: abs(t.z_center))
-        stack_half_side = 0.5 * sol.cable.stack.block_side
-        eval_r = turn.r_center - stack_half_side
+        stack_half_radial = 0.5 * sol.cable.stack.width
+        eval_r = turn.r_center - stack_half_radial
         eval_z = turn.z_center
 
         field_solver = BFieldSolver(sol)
@@ -172,17 +173,20 @@ class SolenoidBuilder:
         current: float,
         B_target: float,
         metric: str = "peak_inner_turn",
+        min_radial_layers: int = 1,
+        max_radial_layers: int = 15,
+        min_axial_layers: int = 1,
     ) -> list[dict]:
-        """Evaluate the full valid design sweep for Nr=8..15 and Nz=48..54."""
+        """Evaluate the design sweep for the requested radial and axial counts."""
         d = cable.conduit_side
         max_axial_turns = max(1, int(np.floor(1.5 / d)))
-        axial_candidates = [n for n in range(48, max_axial_turns + 1) if n * d <= 1.5 + 1e-9]
+        axial_candidates = [n for n in range(min_axial_layers, max_axial_turns + 1) if n * d <= 1.5 + 1e-9]
         if not axial_candidates:
             axial_candidates = [max_axial_turns]
 
         rows = []
         for n_axial in axial_candidates:
-            for n_radial in range(8, 16):
+            for n_radial in range(min_radial_layers, max_radial_layers + 1):
                 sol_height = min(float(height), n_axial * d)
                 sol = SolenoidBuilder._build_from_counts(
                     cable=cable,
@@ -225,11 +229,15 @@ class SolenoidBuilder:
         tol: float = 1e-3,
         max_iter: int = 80,
         metric: str = "peak_inner_turn",
+        fixed_current: bool = False,
+        min_radial_layers: int = 1,
+        max_radial_layers: int = 15,
+        min_axial_layers: int = 1,
     ) -> TargetFieldSolution:
         """Iterate over realistic radial/axial layouts until the peak-turn field reaches the target."""
         d = cable.conduit_side
         max_axial_turns = max(1, int(np.floor(1.5 / d)))
-        axial_candidates = [n for n in range(48, max_axial_turns + 1) if n * d <= 1.5 + 1e-9]
+        axial_candidates = [n for n in range(min_axial_layers, max_axial_turns + 1) if n * d <= 1.5 + 1e-9]
         if not axial_candidates:
             axial_candidates = [max_axial_turns]
 
@@ -263,11 +271,42 @@ class SolenoidBuilder:
             field_value = SolenoidBuilder._peak_field_at_innermost_turn(sol, current=current_value)
             return sol, field_value
 
-        sweep_rows = SolenoidBuilder._design_sweep_rows(cable, r_inner_eff, height, current_eff, B_target, metric=metric)
-        print("\nPeak-field sweep table (valid range: Nr 8..15, Nz 48..54):")
+        sweep_rows = SolenoidBuilder._design_sweep_rows(cable, r_inner_eff, height, current_eff, B_target, metric=metric, min_radial_layers=min_radial_layers, max_radial_layers=max_radial_layers, min_axial_layers=min_axial_layers)
+        print(f"\nPeak-field sweep table (valid range: Nr {min_radial_layers}..{max_radial_layers}, Nz {min_axial_layers}..{max_axial_turns}):")
         print(f"{'Nr':>3} {'Nz':>3} {'turns':>6} {'outer_m':>8} {'height_m':>9} {'Bpeak_T':>10} {'NI_MAt':>9} {'delta_T':>9}")
         for row in sorted(sweep_rows, key=lambda r: (r["delta_target_T"], r["n_radial"], r["n_axial"])):
             print(f"{row['n_radial']:>3} {row['n_axial']:>3} {row['turns']:>6} {row['r_outer_m']:>8.4f} {row['height_m']:>9.3f} {row['peak_field_T']:>10.3f} {row['NI_MAt']:>9.3f} {row['delta_target_T']:>9.3f}")
+
+        if fixed_current:
+            meeting_rows = [row for row in sweep_rows if row["peak_field_T"] >= B_target]
+            if meeting_rows:
+                best_row = min(
+                    meeting_rows,
+                    key=lambda row: (row["peak_field_T"], row["turns"]),
+                )
+            else:
+                best_row = max(sweep_rows, key=lambda row: row["peak_field_T"])
+            best_sol = SolenoidBuilder._build_from_counts(
+                cable=cable,
+                r_inner=r_inner_eff,
+                height=min(float(height), best_row["n_axial"] * d),
+                current=current_eff,
+                n_radial=best_row["n_radial"],
+                n_axial=best_row["n_axial"],
+            )
+            best_field = best_row["peak_field_T"]
+            print(f"\nSelected fixed-current design: Nr={best_sol.n_radial}, Nz={best_sol.n_axial}, turns={best_sol.total_turns}, Bpeak={best_field:.3f} T")
+            return TargetFieldSolution(
+                solenoid=best_sol,
+                target_field=B_target,
+                achieved_field=best_field,
+                current=current_eff,
+                inner_radius=r_inner_eff,
+                outer_radius=best_sol.r_outer,
+                turns=best_sol.total_turns,
+                radial_layers=best_sol.n_radial,
+                axial_layers=best_sol.n_axial,
+            )
 
         best_sol = None
         best_field = np.inf
@@ -287,7 +326,7 @@ class SolenoidBuilder:
 
         for _ in range(max_iter):
             for n_axial in axial_candidates:
-                for n_radial in range(8, 16):
+                for n_radial in range(min_radial_layers, max_radial_layers + 1):
                     sol, field_value = build_and_eval(n_radial, n_axial, current_eff, r_inner_eff)
                     if abs(field_value - B_target) < abs(best_field - B_target):
                         best_sol = sol

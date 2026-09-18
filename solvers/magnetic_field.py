@@ -27,14 +27,16 @@ class BFieldSolver:
         if not hasattr(turn.cable, "stack"):
             return [(turn.r_center, turn.z_center, turn.current)]
 
-        half_side = 0.5 * turn.cable.stack.block_side
+        half_radial = 0.5 * turn.cable.stack.width
+        half_axial = 0.5 * turn.cable.stack.height
         filaments = []
         filament_current = turn.current / (n_side * n_side)
-        step = 2.0 * half_side / n_side
+        radial_step = 2.0 * half_radial / n_side
+        axial_step = 2.0 * half_axial / n_side
         for i in range(n_side):
             for j in range(n_side):
-                r_f = turn.r_center - half_side + (i + 0.5) * step
-                z_f = turn.z_center - half_side + (j + 0.5) * step
+                r_f = turn.r_center - half_radial + (i + 0.5) * radial_step
+                z_f = turn.z_center - half_axial + (j + 0.5) * axial_step
                 filaments.append((r_f, z_f, filament_current))
         return filaments
 

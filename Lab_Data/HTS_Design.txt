@@ -1,0 +1,23 @@
+THS REBCO tapes
+Stabilizer: Copper, RRR = 100
+Jacket: Stainless steel
+Coolant: Helium, maximum available mass flow rate of 15 g/s, inlet temperature in the range [4.5 K - 50], inlet pressure in the range [5 bar - 20 bar]
+
+
+The double pancake should be operated on the equatorial plane of a solenoid,
+wound using the same conductor, with inner diameter of 1 m and up to 1.5 m in
+height, sized to reach a maximum magnetic field on the conductor (including self
+field) of 15 T at the rated current of 50 kA. The current ramp rate in the solenoid is
+0.2 kA/s.
+
+GOAL: Size the CICC and its cooling needs to guarantee that the temperature margin in operation is above 5 K
+More in detail:
+1. Measure HTS tape SC properties in LAB
+2. Compute the B field map in the solenoid → compute the
+ampere-turn → compute the B field along your double pancake
+3. For the measured strand props, identify the CICC layout (# of
+strands per slot, # of slots…)
+4. For the operating scenario, compute AC losses
+5. Assess the cooling needs: simulate the operating scenario to
+identify the minimum coolant mass flow rate that guarantees the
+rated temperature margin.

@@ -4,6 +4,7 @@ import warnings
 import numpy as np
 import sys
 import os
+import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from data.materials import HTSTape
@@ -18,32 +19,36 @@ warnings.filterwarnings("ignore")
 
 
 def main():
+    total_start = time.perf_counter()
+
     # Create conductor
     tape = HTSTape(
         width=4e-3,
         thickness=0.1e-3,
-        t_rebco=1e-6,
-        t_copper=20e-6,
-        t_substrate=50e-6,
+        t_rebco=2.5e-6,
+        t_copper=10e-6,
+        t_substrate=40e-6,
+        hermes_ic77_sf=120.0,
     )
 
-    stack = TapeStack(
+    stage_start = time.perf_counter()
+    cable = StackedSlotCable.sized_for_current(
         tape=tape,
-        N_tapes=40,
-        gap=0.0,
-    )
-
-    cable = StackedSlotCable(
-        stack=stack,
-        N_slots=4,
+        target_current=50e3,
+        temperature=20.0,
+        field=15.0,
+        margin=0.20,
+        slot_candidates=(4, 6, 8),
         jacket_outer_diameter=27.7e-3,
         jacket_thick=2.0e-3,
         former_thick=2e-3,  # Not used now, but keep
         former_material="Copper",
         helium_channel_diameter=7.0e-3,
     )
+    cable_sizing_time = time.perf_counter() - stage_start
 
     # Build geometry
+    stage_start = time.perf_counter()
     design = SolenoidBuilder.solve_to_target_field(
         cable=cable,
         r_inner=0.50,
@@ -52,18 +57,51 @@ def main():
         current=50e3,
         tol=1e-3,
         metric="peak_inner_turn",
+        fixed_current=True,
+        min_radial_layers=3,
+        max_radial_layers=7,
+        min_axial_layers=24,
     )
+    geometry_sizing_time = time.perf_counter() - stage_start
     sol = design.solenoid
 
-    print("Target-field design summary:")
-    for key, value in design.summary.items():
-        print(f"  {key}: {value}")
-    print(f"Total Ampere-Turns: {design.solenoid.NI/1e6:.2f} MA-turns")
-    sol.summary()
+    cable_ic = cable.critical_current(20.0, design.achieved_field)
+    current_margin = cable_ic / design.current - 1.0
+    print("\n" + "=" * 72)
+    print("REPORT-READY DESIGN SUMMARY")
+    print("=" * 72)
+    print(f"Tape width/thickness       : {tape.width * 1e3:.1f} / {tape.thickness * 1e3:.2f} mm")
+    print(f"Hermes Ic(77 K, self-field): {tape.hermes_ic77_sf:.1f} A per 4 mm tape")
+    print(f"CICC slots                 : {cable.N_slots}")
+    print(f"Tapes per slot             : {cable.stack.N_tapes}")
+    print(f"Total HTS tapes            : {cable.N_slots * cable.stack.N_tapes}")
+    print(f"CICC jacket outer diameter: {cable.jacket_outer_diameter * 1e3:.1f} mm")
+    print(f"Helium channel diameter    : {cable.helium_channel_diameter * 1e3:.1f} mm")
+    print(f"Design current             : {design.current / 1e3:.3f} kA")
+    print(f"Cable Ic at 20 K, Bpeak    : {cable_ic / 1e3:.3f} kA")
+    print(f"Current margin             : {current_margin * 100:.2f} %")
+    print(f"Radial winding layers      : {design.radial_layers}")
+    print(f"Axial winding layers       : {design.axial_layers}")
+    print(f"Total turns                : {design.turns}")
+    print(f"Solenoid height            : {sol.height:.4f} m")
+    print(f"Inner/outer radius         : {sol.r_inner:.4f} / {sol.r_outer:.4f} m")
+    print(f"Ampere-turns               : {design.current * design.turns / 1e6:.3f} MA-turns")
+    print(f"Target peak field          : {design.target_field:.6f} T")
+    print(f"Achieved peak field        : {design.achieved_field:.6f} T")
+    print("=" * 72)
+
+    print("Hermes cable current-capacity checks:")
+    for temperature, field in ((20.0, 15.0), (30.0, 8.0), (50.0, 8.0)):
+        cable_ic_at_point = cable.critical_current(temperature, field)
+        margin = cable_ic_at_point / design.current - 1.0
+        print(f"  T={temperature:.1f} K, B={field:.1f} T: Ic={cable_ic_at_point / 1e3:.3f} kA, "
+              f"current margin={margin * 100:.1f}%")
 
     # Run inductance solver
+    stage_start = time.perf_counter()
     inductance_solver = InductanceSolver(sol)
     inductance_sol = inductance_solver.compute()
+    inductance_time = time.perf_counter() - stage_start
     print(f"Inductance matrix shape: {inductance_sol.matrix.shape}")
     print(f"Total series inductance: {inductance_sol.total_inductance:.6f} H")
     print(f"Positive definite: {inductance_sol.positive_definite}")
@@ -82,9 +120,12 @@ def main():
         print(inductance_sol.matrix[:preview_size, :preview_size])
 
     # Plot geometry
+    stage_start = time.perf_counter()
     plot_geometry_overview(sol, cable)
+    geometry_plot_time = time.perf_counter() - stage_start
 
     # Run magnetic field solver
+    stage_start = time.perf_counter()
     bfield_solver = BFieldSolver(sol)
     bfield_sol = bfield_solver.compute(
         r_max=sol.r_outer * 2.0,
@@ -94,13 +135,29 @@ def main():
     )
     innermost_turn_field = SolenoidBuilder._peak_field_at_innermost_turn(sol)
     usable_Bmag = np.nan_to_num(bfield_sol.Bmag, nan=-np.inf)
+    field_map_time = time.perf_counter() - stage_start
     print(f"Peak field at innermost equatorial turn: {innermost_turn_field:.2f} T")
     print(f"Max field in the computed map (excluding near-turn singularities): {usable_Bmag.max():.2f} T")
     print(f"Design target: 15.00 T")
     print(f"Achieved inner-turn field: {design.achieved_field:.2f} T")
 
     # Plot field
+    stage_start = time.perf_counter()
     plot_bfield(bfield_sol, sol)
+    field_plot_time = time.perf_counter() - stage_start
+
+    total_time = time.perf_counter() - total_start
+    print("\n" + "=" * 72)
+    print("RUNTIME SUMMARY")
+    print("=" * 72)
+    print(f"CICC sizing                  : {cable_sizing_time:.3f} s")
+    print(f"Fixed-current geometry sizing: {geometry_sizing_time:.3f} s")
+    print(f"Inductance matrix            : {inductance_time:.3f} s")
+    print(f"Geometry plot                : {geometry_plot_time:.3f} s")
+    print(f"Magnetic-field map           : {field_map_time:.3f} s")
+    print(f"Field plot                   : {field_plot_time:.3f} s")
+    print(f"TOTAL RUNTIME                : {total_time:.3f} s ({total_time / 60:.2f} min)")
+    print("=" * 72)
 
 
 if __name__ == "__main__":

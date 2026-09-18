@@ -35,13 +35,18 @@ def plot_cable_cross_section(cable, ax=None):
         ax.text(0, 0, "He", ha='center', va='center',
                 fontsize=7, color='white', fontweight='bold')
 
-        # HTS stacks as rectangles
-        block_w = cable.stack.width
-        block_h = cable.stack.height
-        for i, (cx, cy) in enumerate(cable.stack_positions):
-            rect = mpatches.Rectangle((cx - block_w/2, cy - block_h/2), block_w, block_h,
-                                      fc="#FFCC44", ec="#996600", lw=0.8,
-                                      label="HTS stack" if i == 0 else "")
+        # HTS stacks are radial petals: their long axis points away from He.
+        tangential_width = cable.stack.width
+        radial_height = cable.stack.height
+        for i, (cx, cy, theta) in enumerate(cable.stack_geometry):
+            rect = mpatches.Rectangle(
+                (cx - tangential_width / 2, cy - radial_height / 2),
+                tangential_width,
+                radial_height,
+                angle=np.degrees(theta + np.pi / 2),
+                rotation_point="center",
+                fc="#FFCC44", ec="#996600", lw=0.8,
+                label="HTS stack" if i == 0 else "")
             ax.add_patch(rect)
 
         xlim = cable.jacket_outer_radius * 1.1
