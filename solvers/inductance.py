@@ -57,7 +57,7 @@ class InductanceSolver:
             n_tapes = cable.N_tapes
 
         area = tape.width * tape.thickness * n_tapes
-        r_eq = np.sqrt(area / np.pi)
+        r_eq = cable.slot_radius
         return MU0 * a * (np.log(8.0 * a / r_eq) - 2.0)
 
     def _loop_mutual_inductance(self, a: float, b: float, dz: float) -> float:

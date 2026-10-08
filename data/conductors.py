@@ -18,17 +18,17 @@ class TapeStack:
 
     @property
     def width(self) -> float:
-        """Width of the tape stack, equal to the tape width."""
+        """Equal to the tape width."""
         return self.tape.width
 
     @property
     def height(self) -> float:
-        """Height of the tape stack from tape stacking."""
-        return self.N_tapes * self.tape.thickness + max(0.0, self.N_tapes - 1) * self.gap
+        """Total height."""
+        return self.N_tapes * self.tape.thickness + (self.N_tapes - 1) * self.gap
 
     @property
     def block_side(self) -> float:
-        """Equivalent square side for packing the stacked block."""
+        """Longer side for packing purpose later."""
         return max(self.width, self.height)
 
     @property
@@ -45,9 +45,9 @@ class TapeStack:
 class StackedSlotCable:
     """A stacked-slot conductor assembly with circular jacket, copper former, and central helium channel."""
     stack: TapeStack
-    N_slots: int = 4  # Fixed to 4 for VIPER architecture
+    N_slots: int = 4  # Start at 4 for the classic VIPER architecture
     jacket_outer_diameter: float = 27.7e-3  # m, outer diameter of circular SS jacket
-    jacket_thick: float = 2.0e-3  # m, SS jacket thickness
+    jacket_thick: float = 2.0e-3  # m, SS jacket thickness, pensez à changer ou à itérer
     former_thick: float = 2e-3  # m, copper former thickness
     former_material: str = "Copper"
     helium_channel_diameter: float = 7.0e-3  # m, diameter of central helium cooling channel
@@ -86,7 +86,7 @@ class StackedSlotCable:
     @property
     def stack_geometry(self) -> list[tuple[float, float, float]]:
         """Return stack centers and radial orientation angles in radians."""
-        angles = np.arange(self.N_slots) * 2.0 * np.pi / self.N_slots
+        angles = np.arange(self.N_slots) * 2 * np.pi / self.N_slots
         r_stack = self.slot_radius
         geometry = []
         for theta in angles:
@@ -98,7 +98,7 @@ class StackedSlotCable:
     @property
     def slot_radius(self) -> float:
         """Approximate slot-center radius for the selected slot count."""
-        return 8.5e-3 if self.N_slots <= 4 else 7.5e-3
+        return 8.5e-3 if self.N_slots <= 4 else 7.5e-3 #Verify if we can find a computable way to do it
 
     @property
     def stack_clearance_ok(self) -> bool:
@@ -106,7 +106,7 @@ class StackedSlotCable:
         half_radial = 0.5 * self.stack.height
         half_tangential = 0.5 * self.stack.width
         for cx, cy, theta in self.stack_geometry:
-            radial_center = np.hypot(cx, cy)
+            radial_center = cx**2 + cy**2
             if radial_center - half_radial < self.helium_radius - 1e-12:
                 return False
             if radial_center + half_radial > self.jacket_inner_radius + 1e-12:
@@ -152,7 +152,7 @@ class StackedSlotCable:
         **kwargs,
     ) -> "StackedSlotCable":
         """Select the smallest geometrically valid cable meeting a current margin."""
-        required_ic = target_current * (1.0 + margin)
+        required_ic = target_current * (1.0 + margin) #perhaps to be deleted
         candidates = []
         for n_slots in slot_candidates:
             tapes_needed = int(np.ceil(required_ic / tape.critical_current(temperature, field) / n_slots))

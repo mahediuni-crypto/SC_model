@@ -29,7 +29,7 @@ class HTSTape:
     t_copper: float  # m, copper stabilizer thickness
     t_substrate: float  # m, substrate thickness
     hermes_ic77_sf: float = 120.0  # A, conservative 4 mm tape lower bound
-    hermes_data_source: str = "Faraday Factory Hermes data book, July 2025"
+    hermes_data_source: str = "Faraday Factory Hermes data book, July 2025" #Seems useless  
 
     @property
     def A_sc(self) -> float:
@@ -42,19 +42,19 @@ class HTSTape:
         return self.width * self.thickness
 
     @property
-    def width_scale(self) -> float:
-        """Scale a 4 mm reference current to this tape width."""
+    def width_ratio(self) -> float:
+        """Ratio of this tape width to the 4 mm reference width used in the lab measurements."""
         return self.width / 4e-3
 
     def hermes_lift_factor(self, temperature: float, field: float) -> float:
-        """Interpolate the published conservative Hermes lift-factor data."""
+        """Returns the searched lift factor by interpolating from the data."""
         if temperature < 4.2 or temperature > 77.3:
             raise ValueError("Hermes lift factors are defined for 4.2 <= T <= 77.3 K")
         if field < 0.0:
             raise ValueError("field must be non-negative")
 
         temperatures = np.array(sorted(HERMES_LIFT_FACTORS), dtype=float)
-        temperature = float(temperature)
+        temperature = float(temperature) #Seems useless but keeps mypy happy
         lower_t = temperatures[temperatures <= temperature].max(initial=temperatures[0])
         upper_t = temperatures[temperatures >= temperature].min(initial=temperatures[-1])
 
@@ -76,8 +76,8 @@ class HTSTape:
 
     def critical_current(self, temperature: float, field: float) -> float:
         """Return conservative Hermes Ic for this tape width at T and B."""
-        return self.hermes_ic77_sf * self.width_scale * self.hermes_lift_factor(temperature, field)
+        return self.hermes_ic77_sf * self.width_ratio * self.hermes_lift_factor(temperature, field)
 
     def __repr__(self) -> str:
-        return (f"HTSTape(w={self.width*1e3:.1f} mm, "
+        return (f"HTSTape(w={self.width*1e3:.2f} mm, "
                 f"t={self.thickness*1e3:.2f} mm)")
