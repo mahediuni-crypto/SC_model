@@ -17,7 +17,7 @@ class InductanceSolver:
 
     def __init__(self, solenoid: Solenoid, filament_grid_size: int = 4):
         self.sol = solenoid
-        self.n_side = filament_grid_size
+        self.n_div = filament_grid_size
         
         # Instantiation of the other solver to get its geometry  
         self.geo_solver = BFieldSolver(solenoid)
@@ -30,7 +30,7 @@ class InductanceSolver:
         turn_filaments = []
         for lay in self.sol.layers:
             # self.geo_solver._turn_filament_grid returns a list of tuples (r, z, I)
-            coils = self.geo_solver._turn_filament_grid(lay, n_div=self.n_side)
+            coils = self.geo_solver._turn_filament_grid(lay, n_div=self.n_div)
             R_array = np.array([f[0] for f in coils])
             Z_array = np.array([f[1] for f in coils])
             turn_filaments.append((R_array, Z_array, lay))
@@ -52,8 +52,8 @@ class InductanceSolver:
                 
                 if idx == jdx:
                     # Formula to avoid the singularity on the diagonal  
-                    w_cell = lay_i.cable.stack.width / self.n_side
-                    h_cell = lay_i.cable.stack.height / self.n_side
+                    w_cell = lay_i.cable.stack.width / self.n_div
+                    h_cell = lay_i.cable.stack.height / self.n_div
                     area_f = w_cell * h_cell
                     r_eq_f = np.sqrt(area_f / np.pi)
                     
