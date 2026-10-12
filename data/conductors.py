@@ -158,7 +158,7 @@ class StackedSlotCable:
             tapes_needed = int(np.ceil(required_ic / tape.critical_current(temperature, field) / n_slots))
             cable = cls(
                 stack=TapeStack(tape=tape, N_tapes=tapes_needed),
-                N_slots=n_slots,
+                N_slots=n_slots,    
                 **kwargs,
             )
             if cable.stack_clearance_ok and cable.critical_current(temperature, field) >= required_ic:
