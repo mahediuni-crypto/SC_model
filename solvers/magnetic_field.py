@@ -114,6 +114,25 @@ class BFieldSolver:
                 Bmag=B_mag
             )
     
+    def external_field_at_point(self, r_eval: float, z_eval: float, source_layer_indices: list[int], n_div: int = 4) -> tuple[float, float]:
+        """
+        Compute (Br, Bz) at point (r_eval, z_eval), 
+        ggenrated by layers in source_layer_indices.
+        """
+        Br_ext = 0.0
+        Bz_ext = 0.0
+        
+        R_arr = np.array([[r_eval]])
+        Z_arr = np.array([[z_eval]])
+        
+        for idx in source_layer_indices:
+            lay = self.sol.layers[idx]
+            br, bz = self._turn_field(lay, R_arr, Z_arr, n_div=n_div)
+            Br_ext += br[0, 0]
+            Bz_ext += bz[0, 0]
+            
+        return Br_ext, Bz_ext
+    
     def _loop_field(self, a: float, z0: float, I: float,
                         R: np.ndarray, Z: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             """Field from single loop."""
