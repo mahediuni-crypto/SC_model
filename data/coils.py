@@ -6,7 +6,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from .conductors import StackedSlotCable
+from conductors import StackedSlotCable
 
 
 @dataclass
